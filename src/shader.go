@@ -84,8 +84,9 @@ func compileShader(source string, shaderType uint32) (uint32, error) {
 	shader := gl.CreateShader(shaderType)
 
 	csources, free := gl.Strs(source)
+	defer free()
+
 	gl.ShaderSource(shader, 1, csources, nil)
-	free()
 	gl.CompileShader(shader)
 
 	var status int32

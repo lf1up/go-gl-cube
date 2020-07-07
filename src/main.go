@@ -52,19 +52,22 @@ func main() {
 
 	gl.UseProgram(program)
 
-	model := mgl32.Ident4()
-	modelUniform := gl.GetUniformLocation(program, gl.Str("model\x00"))
-	gl.UniformMatrix4fv(modelUniform, 1, false, &model[0])
-
-	view := mgl32.LookAtV(mgl32.Vec3{3, 3, 3}, mgl32.Vec3{0, 0, 0}, mgl32.Vec3{0, 1, 0})
-	viewUniform := gl.GetUniformLocation(program, gl.Str("view\x00"))
-	gl.UniformMatrix4fv(viewUniform, 1, false, &view[0])
-
 	projection := mgl32.Perspective(mgl32.DegToRad(45.0), float32(windowWidth)/windowHeight, 0.1, 10.0)
 	projectionUniform := gl.GetUniformLocation(program, gl.Str("projection\x00"))
 	gl.UniformMatrix4fv(projectionUniform, 1, false, &projection[0])
 
-	textureUniform := gl.GetUniformLocation(program, gl.Str("tex\x00"))
+	view := mgl32.LookAtV(mgl32.Vec3{3, 3, 3}, mgl32.Vec3{0, 0, 0}, mgl32.Vec3{0, 1, 0})
+	model := mgl32.Ident4()
+
+	modelView := view.Mul4(model)
+	modelViewUniform := gl.GetUniformLocation(program, gl.Str("modelView\x00"))
+	gl.UniformMatrix4fv(modelViewUniform, 1, false, &modelView[0])
+
+	normal := (modelView.Inv()).Transpose()
+	normalUniform := gl.GetUniformLocation(program, gl.Str("normal\x00"))
+	gl.UniformMatrix4fv(normalUniform, 1, false, &normal[0])
+
+	textureUniform := gl.GetUniformLocation(program, gl.Str("texture\x00"))
 	gl.Uniform1i(textureUniform, 0)
 
 	// Load the texture
@@ -105,29 +108,35 @@ func main() {
 	gl.VertexAttribPointer(colorAttrib, 3, gl.FLOAT, false, 11*floatSize, gl.PtrOffset(8*floatSize))
 
 	gl.BindVertexArray(0)
+	gl.UseProgram(0)
 
 	// Configure global settings
 	gl.Enable(gl.DEPTH_TEST)
-	gl.DepthFunc(gl.LESS)
-	gl.ClearColor(1.0, 1.0, 1.0, 1.0)
+	gl.DepthFunc(gl.LEQUAL)
+	gl.ClearColor(0.7, 0.7, 0.7, 1.0)
+	gl.ClearStencil(0)
+	gl.ClearDepth(1.0)
 
 	angle := 0.0
 	previousTime := glfw.GetTime()
 
 	for !window.ShouldClose() {
-		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT)
 
 		// Update
 		time := glfw.GetTime()
 		elapsed := time - previousTime
 		previousTime = time
+		angle -= elapsed
 
-		angle += elapsed
 		model = mgl32.HomogRotate3D(float32(angle), mgl32.Vec3{0, 1, 0})
+		modelView = view.Mul4(model)
+		normal = (modelView.Inv()).Transpose()
 
 		// Render
 		gl.UseProgram(program)
-		gl.UniformMatrix4fv(modelUniform, 1, false, &model[0])
+		gl.UniformMatrix4fv(modelViewUniform, 1, false, &modelView[0])
+		gl.UniformMatrix4fv(normalUniform, 1, false, &normal[0])
 
 		gl.BindVertexArray(vao)
 
@@ -137,6 +146,7 @@ func main() {
 		gl.DrawElements(gl.TRIANGLES, int32(len(cubeIndices)), gl.UNSIGNED_INT, gl.PtrOffset(0))
 
 		gl.BindVertexArray(0)
+		gl.UseProgram(0)
 
 		// Maintenance
 		window.SwapBuffers()

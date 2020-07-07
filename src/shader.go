@@ -11,37 +11,89 @@ var vertexShader = `
 	#version 120
 
 	uniform mat4 projection;
-	uniform mat4 view;
-	uniform mat4 model;
+	uniform mat4 modelView;
+	uniform mat4 normal;
 
 	attribute vec3 vertPosition;
 	attribute vec3 vertNormal;
 	attribute vec2 vertTexCoord;
 	attribute vec3 vertColor;
 
+	varying vec3 fragPosition;
 	varying vec3 fragNormal;
 	varying vec2 fragTexCoord;
 	varying vec3 fragColor;
 
 	void main() {
-			fragNormal = vertNormal;
+			vec4 vertPosition4 = modelView * vec4(vertPosition, 1.0);
+
+			fragPosition = vec3(vertPosition4) / vertPosition4.w;
+			fragNormal = vec3(normal * vec4(vertNormal, 0.0));
+
 			fragTexCoord = vertTexCoord;
 			fragColor = vertColor;
-			gl_Position = projection * view * model * vec4(vertPosition, 1.0);
+
+			gl_Position = projection * modelView * vec4(vertPosition, 1.0);
 	}
 ` + "\x00"
 
+// Blinn–Phong shading model with gamma correction
 var fragmentShader = `
 	#version 120
 
-	uniform sampler2D tex;
+	uniform sampler2D texture;
 
+	varying vec3 fragPosition;
 	varying vec3 fragNormal;
 	varying vec2 fragTexCoord;
 	varying vec3 fragColor;
 
+	const vec3 lightPosition = vec3(3.0, 3.0, 3.0);
+	const vec3 lightColor = vec3(1.0, 1.0, 1.0);
+	const vec3 ambientColor = vec3(0.3, 0.3, 0.3);
+	const vec3 diffuseColor = vec3(0.5, 0.5, 0.5);
+	const vec3 specularColor = vec3(1.0, 1.0, 1.0);
+	const float lightPower = 40.0;
+	const float shininess = 16.0;
+	const float screenGamma = 2.2; // Assume the monitor is calibrated to the sRGB color space
+
+	const int mode = 1;
+
 	void main() {
-			gl_FragColor = texture2D(tex, fragTexCoord) * vec4(fragColor, 1.0);
+		vec3 normal = normalize(fragNormal);
+		vec3 lightDir = lightPosition - fragPosition;
+		float distance = length(lightDir);
+		distance = distance * distance;
+		lightDir = normalize(lightDir);
+	
+		float lambertian = max(dot(lightDir, normal), 0.0);
+		float specular = 0.0;
+	
+		if (lambertian > 0.0) {
+	
+			vec3 viewDir = normalize(-fragPosition);
+	
+			// this is blinn phong
+			vec3 halfDir = normalize(lightDir + viewDir);
+			float specAngle = max(dot(halfDir, normal), 0.0);
+			specular = pow(specAngle, shininess);
+				 
+			// this is phong (for comparison)
+			if (mode == 2) {
+				vec3 reflectDir = reflect(-lightDir, normal);
+				specAngle = max(dot(reflectDir, viewDir), 0.0);
+				// note that the exponent is different here
+				specular = pow(specAngle, shininess/4.0);
+			}
+		}
+		vec3 colorLinear = ambientColor +
+											 diffuseColor * lambertian * lightColor * lightPower / distance +
+											 specularColor * specular * lightColor * lightPower / distance;
+		// apply gamma correction (assume ambientColor, diffuseColor and specularColor
+		// have been linearized, i.e. have no gamma correction in them)
+		vec3 colorGammaCorrected = pow(colorLinear, vec3(1.0 / screenGamma));
+		// use the gamma corrected color in the fragment
+		gl_FragColor = texture2D(texture, fragTexCoord) * vec4(fragColor, 1.0) * vec4(colorGammaCorrected, 1.0);
 	}
 ` + "\x00"
 

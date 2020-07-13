@@ -143,6 +143,17 @@ func main() {
 		gl.ActiveTexture(gl.TEXTURE0)
 		gl.BindTexture(gl.TEXTURE_2D, texture)
 
+		// Draw cube
+		gl.DrawElements(gl.TRIANGLES, int32(len(cubeIndices)), gl.UNSIGNED_INT, gl.PtrOffset(0))
+
+		// Draw additional cube
+		modelAdditional := model.Mul4(mgl32.Translate3D(2, 0, 0))
+		modelView = view.Mul4(modelAdditional)
+		normal = (modelView.Inv()).Transpose()
+
+		gl.UniformMatrix4fv(modelViewUniform, 1, false, &modelView[0])
+		gl.UniformMatrix4fv(normalUniform, 1, false, &normal[0])
+
 		gl.DrawElements(gl.TRIANGLES, int32(len(cubeIndices)), gl.UNSIGNED_INT, gl.PtrOffset(0))
 
 		gl.BindVertexArray(0)

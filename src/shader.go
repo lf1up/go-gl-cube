@@ -14,6 +14,8 @@ var vertexShader = `
 	uniform mat4 modelView;
 	uniform mat4 normal;
 
+	uniform mat3 selectedTriangle;
+
 	attribute vec3 vertPosition;
 	attribute vec3 vertNormal;
 	attribute vec2 vertTexCoord;
@@ -23,6 +25,7 @@ var vertexShader = `
 	varying vec3 fragNormal;
 	varying vec2 fragTexCoord;
 	varying vec3 fragColor;
+	varying float fragSelected;
 
 	void main() {
 			vec4 vertPosition4 = modelView * vec4(vertPosition, 1.0);
@@ -32,6 +35,11 @@ var vertexShader = `
 
 			fragTexCoord = vertTexCoord;
 			fragColor = vertColor;
+
+			if (vertPosition == selectedTriangle[0] || vertPosition == selectedTriangle[1] || vertPosition == selectedTriangle[2])
+				fragSelected = 1.0;
+			else
+			  fragSelected = 0.0;
 
 			gl_Position = projection * modelView * vec4(vertPosition, 1.0);
 	}
@@ -47,6 +55,7 @@ var fragmentShader = `
 	varying vec3 fragNormal;
 	varying vec2 fragTexCoord;
 	varying vec3 fragColor;
+	varying float fragSelected;
 
 	const vec3 lightPosition = vec3(3.0, 3.0, 3.0);
 	const vec3 lightColor = vec3(1.0, 1.0, 1.0);
@@ -93,7 +102,10 @@ var fragmentShader = `
 		// have been linearized, i.e. have no gamma correction in them)
 		vec3 colorGammaCorrected = pow(colorLinear, vec3(1.0 / screenGamma));
 		// use the gamma corrected color in the fragment
-		gl_FragColor = texture2D(texture, fragTexCoord) * vec4(fragColor, 1.0) * vec4(colorGammaCorrected, 1.0);
+		if (fragSelected == 1.0)
+			gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+		else
+			gl_FragColor = texture2D(texture, fragTexCoord) * vec4(fragColor, 1.0) * vec4(colorGammaCorrected, 1.0);
 	}
 ` + "\x00"
 

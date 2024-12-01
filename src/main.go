@@ -51,17 +51,11 @@ func scrollCallback(w *glfw.Window, xoff float64, yoff float64) {
 	}
 }
 
-func init() {
-	// GLFW event handling must run on the main OS thread
-	runtime.LockOSThread()
-}
-
-// Renders a textured spinning cube using GLFW 3.3 and OpenGL 2.1.
-func main() {
+// Initialize GLFW and OpenGL
+func initGLFW() *glfw.Window {
 	if err := glfw.Init(); err != nil {
 		log.Fatalln("failed to initialize glfw:", err)
 	}
-	defer glfw.Terminate()
 
 	glfw.WindowHint(glfw.Resizable, glfw.False)
 	glfw.WindowHint(glfw.ContextVersionMajor, 2)
@@ -86,43 +80,20 @@ func main() {
 	version := gl.GoStr(gl.GetString(gl.VERSION))
 	fmt.Println("OpenGL version", version)
 
-	// Configure the vertex and fragment shaders
-	program, err := newProgram(vertexShader, fragmentShader)
-	if err != nil {
-		panic(err)
-	}
+	return window
+}
 
-	gl.UseProgram(program)
+// Configure the OpenGL settings
+func configureGL() {
+	gl.Enable(gl.DEPTH_TEST)
+	gl.DepthFunc(gl.LEQUAL)
+	gl.ClearColor(0.7, 0.7, 0.7, 1.0)
+	gl.ClearStencil(0)
+	gl.ClearDepth(1.0)
+}
 
-	projection = mgl32.Perspective(mgl32.DegToRad(45.0), float32(WINDOW_WIDTH)/WINDOW_HEIGHT, 0.1, 100.0)
-	projectionUniform := gl.GetUniformLocation(program, gl.Str("projection\x00"))
-	gl.UniformMatrix4fv(projectionUniform, 1, false, &projection[0])
-
-	view = mgl32.LookAtV(mgl32.Vec3{3, 3, 3}, mgl32.Vec3{0, 0, 0}, mgl32.Vec3{0, 1, 0})
-	model = mgl32.Ident4()
-
-	modelView := view.Mul4(model)
-	modelViewUniform := gl.GetUniformLocation(program, gl.Str("modelView\x00"))
-	gl.UniformMatrix4fv(modelViewUniform, 1, false, &modelView[0])
-
-	normal := (modelView.Inv()).Transpose()
-	normalUniform := gl.GetUniformLocation(program, gl.Str("normal\x00"))
-	gl.UniformMatrix4fv(normalUniform, 1, false, &normal[0])
-
-	textureUniform := gl.GetUniformLocation(program, gl.Str("texture\x00"))
-	gl.Uniform1i(textureUniform, 0)
-
-	selectedTriangle = mgl32.Ident3()
-	selectedTriangleUniform := gl.GetUniformLocation(program, gl.Str("selectedTriangle\x00"))
-	gl.UniformMatrix3fv(selectedTriangleUniform, 1, false, &selectedTriangle[0])
-
-	// Load the texture
-	texture, err := newTexture("./res/square.png")
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	// Configure the vertex data
+// Load the vertex data of the cube
+func loadVertexData(program uint32) uint32 {
 	var vao uint32
 	gl.GenVertexArrays(1, &vao)
 	gl.BindVertexArray(vao)
@@ -156,14 +127,69 @@ func main() {
 	gl.BindVertexArray(0)
 	gl.UseProgram(0)
 
-	// Configure global settings
-	gl.Enable(gl.DEPTH_TEST)
-	gl.DepthFunc(gl.LEQUAL)
-	gl.ClearColor(0.7, 0.7, 0.7, 1.0)
-	gl.ClearStencil(0)
-	gl.ClearDepth(1.0)
+	return vao
+}
 
+func init() {
+	// GLFW event handling must run on the main OS thread
+	runtime.LockOSThread()
+}
+
+// Renders a textured spinning cube using GLFW 3.3 and OpenGL 2.1
+func main() {
+	// Initialize GLFW and OpenGL
+	window := initGLFW()
+	defer glfw.Terminate()
+	configureGL()
+
+	// Configure the vertex and fragment shaders
+	program, err := newProgram(vertexShader, fragmentShader)
+	if err != nil {
+		panic(err)
+	}
+	gl.UseProgram(program)
+
+	// Set the projection matrix
+	projection = mgl32.Perspective(mgl32.DegToRad(45.0), float32(WINDOW_WIDTH)/WINDOW_HEIGHT, 0.1, 100.0)
+	projectionUniform := gl.GetUniformLocation(program, gl.Str("projection\x00"))
+	gl.UniformMatrix4fv(projectionUniform, 1, false, &projection[0])
+
+	// Set the view matrix
+	view = mgl32.LookAtV(mgl32.Vec3{3, 3, 3}, mgl32.Vec3{0, 0, 0}, mgl32.Vec3{0, 1, 0})
+	// Set the model matrix
+	model = mgl32.Ident4()
+
+	// Set the model-view matrix
+	modelView := view.Mul4(model)
+	modelViewUniform := gl.GetUniformLocation(program, gl.Str("modelView\x00"))
+	gl.UniformMatrix4fv(modelViewUniform, 1, false, &modelView[0])
+
+	// Set the normal matrix
+	normal := (modelView.Inv()).Transpose()
+	normalUniform := gl.GetUniformLocation(program, gl.Str("normal\x00"))
+	gl.UniformMatrix4fv(normalUniform, 1, false, &normal[0])
+
+	// Set the texture uniform shader variable
+	textureUniform := gl.GetUniformLocation(program, gl.Str("texture\x00"))
+	gl.Uniform1i(textureUniform, 0)
+
+	// Set the specific triangle intersection matrix
+	selectedTriangle = mgl32.Ident3()
+	selectedTriangleUniform := gl.GetUniformLocation(program, gl.Str("selectedTriangle\x00"))
+	gl.UniformMatrix3fv(selectedTriangleUniform, 1, false, &selectedTriangle[0])
+
+	// Load the texture
+	texture, err := newTexture("./res/square.png")
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	// Load the vertex data
+	vao := loadVertexData(program)
+
+	// Current rotation angle
 	angle := 0.0
+	// Time of the previous frame
 	previousTime := glfw.GetTime()
 
 	for !window.ShouldClose() {
@@ -173,7 +199,7 @@ func main() {
 		// Update model-view matrix
 		updateModelViewMatrix(program)
 
-		// Time
+		// Get the elapsed time
 		time := glfw.GetTime()
 		elapsed := time - previousTime
 		previousTime = time
@@ -190,10 +216,11 @@ func main() {
 			model = mgl32.HomogRotate3D(float32(angle), mgl32.Vec3{0, 1, 0})
 		}
 
+		// Always update because of the rotation and zoom
 		modelView = view.Mul4(model)
 		normal = (modelView.Inv()).Transpose()
 
-		// Ray-triangle intersection (with mouse coordinates)
+		// Ray-triangle intersection (with mouse coordinates, non-canonical implementation of Möller-Trumbore algorithm or IDK)
 		if (mouseX >= -1 && mouseX <= 1) && (mouseY >= -1 && mouseY <= 1) {
 			// log.Printf("[Debug] Mouse position (x y): %v %v\n", mouseX, mouseY)
 
@@ -245,7 +272,7 @@ func main() {
 			}
 		}
 
-		// Render
+		// Render the scene
 		gl.UseProgram(program)
 		gl.UniformMatrix4fv(modelViewUniform, 1, false, &modelView[0])
 		gl.UniformMatrix4fv(normalUniform, 1, false, &normal[0])
@@ -256,7 +283,7 @@ func main() {
 		gl.ActiveTexture(gl.TEXTURE0)
 		gl.BindTexture(gl.TEXTURE_2D, texture)
 
-		// Draw cube
+		// Draw cube here
 		gl.DrawElements(gl.TRIANGLES, int32(len(cubeIndices)), gl.UNSIGNED_INT, gl.PtrOffset(0))
 
 		// Draw additional cube here

@@ -11,9 +11,9 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 )
 
-const windowWidth = 800
-const windowHeight = 600
-const floatSize = 4
+const WINDOW_WIDTH = 800
+const WINDOW_HEIGHT = 600
+const FLOAT_SIZE = 4
 
 var (
 	projection       mgl32.Mat4
@@ -22,11 +22,13 @@ var (
 	selectedTriangle mgl32.Mat3
 	mouseX           float32
 	mouseY           float32
+	enableRotation   bool
+	keyRPressed      bool
 )
 
 func cursorPosCallback(w *glfw.Window, xpos float64, ypos float64) {
-	mouseX = float32(xpos/(windowWidth*0.5) - 1.0)
-	mouseY = float32(-(ypos/(windowHeight*0.5) - 1.0))
+	mouseX = float32(xpos/(WINDOW_WIDTH*0.5) - 1.0)
+	mouseY = float32(-(ypos/(WINDOW_HEIGHT*0.5) - 1.0))
 }
 
 func init() {
@@ -44,7 +46,7 @@ func main() {
 	glfw.WindowHint(glfw.Resizable, glfw.False)
 	glfw.WindowHint(glfw.ContextVersionMajor, 2)
 	glfw.WindowHint(glfw.ContextVersionMinor, 1)
-	window, err := glfw.CreateWindow(windowWidth, windowHeight, "CUBE", nil, nil)
+	window, err := glfw.CreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "CUBE [GL 2.1] Press \"R\" to rotate", nil, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -52,6 +54,11 @@ func main() {
 
 	// Set mouse tracking callback
 	window.SetCursorPosCallback(cursorPosCallback)
+	// Set input mode
+	window.SetInputMode(glfw.StickyKeysMode, glfw.True)
+
+	// Disable rotation by default
+	enableRotation = false
 
 	// Initialize Gl
 	if err := gl.Init(); err != nil {
@@ -69,7 +76,7 @@ func main() {
 
 	gl.UseProgram(program)
 
-	projection = mgl32.Perspective(mgl32.DegToRad(45.0), float32(windowWidth)/windowHeight, 0.1, 10.0)
+	projection = mgl32.Perspective(mgl32.DegToRad(45.0), float32(WINDOW_WIDTH)/WINDOW_HEIGHT, 0.1, 10.0)
 	projectionUniform := gl.GetUniformLocation(program, gl.Str("projection\x00"))
 	gl.UniformMatrix4fv(projectionUniform, 1, false, &projection[0])
 
@@ -88,9 +95,9 @@ func main() {
 	gl.Uniform1i(textureUniform, 0)
 
 	selectedTriangle = mgl32.Ident3()
-	selectedTriangle.SetCol(0, mgl32.Vec3{1, 1, 1})
-	selectedTriangle.SetCol(1, mgl32.Vec3{-1, 1, 1})
-	selectedTriangle.SetCol(2, mgl32.Vec3{-1, -1, 1})
+	// selectedTriangle.SetCol(0, mgl32.Vec3{1, 1, 1})
+	// selectedTriangle.SetCol(1, mgl32.Vec3{-1, 1, 1})
+	// selectedTriangle.SetCol(2, mgl32.Vec3{-1, -1, 1})
 	selectedTriangleUniform := gl.GetUniformLocation(program, gl.Str("selectedTriangle\x00"))
 	gl.UniformMatrix3fv(selectedTriangleUniform, 1, false, &selectedTriangle[0])
 
@@ -108,28 +115,28 @@ func main() {
 	var vbo uint32
 	gl.GenBuffers(1, &vbo)
 	gl.BindBuffer(gl.ARRAY_BUFFER, vbo)
-	gl.BufferData(gl.ARRAY_BUFFER, len(cubeVertices)*floatSize, gl.Ptr(cubeVertices), gl.STATIC_DRAW)
+	gl.BufferData(gl.ARRAY_BUFFER, len(cubeVertices)*FLOAT_SIZE, gl.Ptr(cubeVertices), gl.STATIC_DRAW)
 
 	var ibo uint32
 	gl.GenBuffers(1, &ibo)
 	gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo)
-	gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(cubeIndices)*floatSize, gl.Ptr(cubeIndices), gl.STATIC_DRAW)
+	gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(cubeIndices)*FLOAT_SIZE, gl.Ptr(cubeIndices), gl.STATIC_DRAW)
 
 	vertAttrib := uint32(gl.GetAttribLocation(program, gl.Str("vertPosition\x00")))
 	gl.EnableVertexAttribArray(vertAttrib)
-	gl.VertexAttribPointer(vertAttrib, 3, gl.FLOAT, false, 11*floatSize, gl.PtrOffset(0))
+	gl.VertexAttribPointer(vertAttrib, 3, gl.FLOAT, false, 11*FLOAT_SIZE, gl.PtrOffset(0))
 
 	normalAttrib := uint32(gl.GetAttribLocation(program, gl.Str("vertNormal\x00")))
 	gl.EnableVertexAttribArray(normalAttrib)
-	gl.VertexAttribPointer(normalAttrib, 3, gl.FLOAT, false, 11*floatSize, gl.PtrOffset(3))
+	gl.VertexAttribPointer(normalAttrib, 3, gl.FLOAT, false, 11*FLOAT_SIZE, gl.PtrOffset(3))
 
 	texCoordAttrib := uint32(gl.GetAttribLocation(program, gl.Str("vertTexCoord\x00")))
 	gl.EnableVertexAttribArray(texCoordAttrib)
-	gl.VertexAttribPointer(texCoordAttrib, 2, gl.FLOAT, false, 11*floatSize, gl.PtrOffset(6*floatSize))
+	gl.VertexAttribPointer(texCoordAttrib, 2, gl.FLOAT, false, 11*FLOAT_SIZE, gl.PtrOffset(6*FLOAT_SIZE))
 
 	colorAttrib := uint32(gl.GetAttribLocation(program, gl.Str("vertColor\x00")))
 	gl.EnableVertexAttribArray(colorAttrib)
-	gl.VertexAttribPointer(colorAttrib, 3, gl.FLOAT, false, 11*floatSize, gl.PtrOffset(8*floatSize))
+	gl.VertexAttribPointer(colorAttrib, 3, gl.FLOAT, false, 11*FLOAT_SIZE, gl.PtrOffset(8*FLOAT_SIZE))
 
 	gl.BindVertexArray(0)
 	gl.UseProgram(0)
@@ -145,15 +152,26 @@ func main() {
 	previousTime := glfw.GetTime()
 
 	for !window.ShouldClose() {
+		// Main update loop
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT)
 
-		// Update
+		// Time
 		time := glfw.GetTime()
 		elapsed := time - previousTime
 		previousTime = time
-		angle -= elapsed
 
-		model = mgl32.HomogRotate3D(float32(angle), mgl32.Vec3{0, 1, 0})
+		// Press "R" to enable/disable rotation
+		if window.GetKey(glfw.KeyR) == glfw.Press && !keyRPressed {
+			enableRotation = !enableRotation
+		} // and avoid multiple toggles
+		keyRPressed = (window.GetKey(glfw.KeyR) == glfw.Press)
+
+		// Rotation
+		if enableRotation {
+			angle -= elapsed
+			model = mgl32.HomogRotate3D(float32(angle), mgl32.Vec3{0, 1, 0})
+		}
+
 		modelView = view.Mul4(model)
 		normal = (modelView.Inv()).Transpose()
 
@@ -198,7 +216,7 @@ func main() {
 			}
 
 			if triangleIsectIndex >= 0 {
-				// log.Printf("[Debug] Mouse is ON Triangle with Index: %v\n", triangleIsectIndex)
+				log.Printf("[Debug] Mouse is ON Triangle with Index: %v\n", triangleIsectIndex)
 
 				triangle := []int32{cubeIndices[triangleIsectIndex*3+0], cubeIndices[triangleIsectIndex*3+1], cubeIndices[triangleIsectIndex*3+2]}
 				selectedTriangle.SetCol(0, mgl32.Vec3{cubeVertices[triangle[0]*11+0], cubeVertices[triangle[0]*11+1], cubeVertices[triangle[0]*11+2]})

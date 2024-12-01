@@ -22,13 +22,25 @@ var (
 	selectedTriangle mgl32.Mat3
 	mouseX           float32
 	mouseY           float32
-	enableRotation   bool
-	keyRPressed      bool
+	enableRotation   bool    = false
+	keyRPressed      bool    = false
+	zoomFactor       float32 = 1.0
 )
 
 func cursorPosCallback(w *glfw.Window, xpos float64, ypos float64) {
 	mouseX = float32(xpos/(WINDOW_WIDTH*0.5) - 1.0)
 	mouseY = float32(-(ypos/(WINDOW_HEIGHT*0.5) - 1.0))
+}
+
+func scrollCallback(w *glfw.Window, xoff float64, yoff float64) {
+	// log.Printf("[Debug] Scroll offset (x, y): %v, %v\n", xoff, yoff)
+
+	zoomFactor -= float32(yoff) * 0.1 // Adjust sensitivity as needed
+	if zoomFactor < 0.1 {
+		zoomFactor = 0.1 // Prevent extreme zoom in
+	} else if zoomFactor > 3.0 {
+		zoomFactor = 3.0 // Prevent extreme zoom out
+	}
 }
 
 func init() {
@@ -46,7 +58,7 @@ func main() {
 	glfw.WindowHint(glfw.Resizable, glfw.False)
 	glfw.WindowHint(glfw.ContextVersionMajor, 2)
 	glfw.WindowHint(glfw.ContextVersionMinor, 1)
-	window, err := glfw.CreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "CUBE [GL 2.1] Press \"R\" to rotate", nil, nil)
+	window, err := glfw.CreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "CUBE [GL 2.1] Press \"R\" to rotate | Use \"Scroll\" to zoom", nil, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -54,11 +66,9 @@ func main() {
 
 	// Set mouse tracking callback
 	window.SetCursorPosCallback(cursorPosCallback)
+	window.SetScrollCallback(scrollCallback)
 	// Set input mode
 	window.SetInputMode(glfw.StickyKeysMode, glfw.True)
-
-	// Disable rotation by default
-	enableRotation = false
 
 	// Initialize Gl
 	if err := gl.Init(); err != nil {
@@ -76,7 +86,7 @@ func main() {
 
 	gl.UseProgram(program)
 
-	projection = mgl32.Perspective(mgl32.DegToRad(45.0), float32(WINDOW_WIDTH)/WINDOW_HEIGHT, 0.1, 10.0)
+	projection = mgl32.Perspective(mgl32.DegToRad(45.0), float32(WINDOW_WIDTH)/WINDOW_HEIGHT, 0.1, 100.0)
 	projectionUniform := gl.GetUniformLocation(program, gl.Str("projection\x00"))
 	gl.UniformMatrix4fv(projectionUniform, 1, false, &projection[0])
 
@@ -95,9 +105,6 @@ func main() {
 	gl.Uniform1i(textureUniform, 0)
 
 	selectedTriangle = mgl32.Ident3()
-	// selectedTriangle.SetCol(0, mgl32.Vec3{1, 1, 1})
-	// selectedTriangle.SetCol(1, mgl32.Vec3{-1, 1, 1})
-	// selectedTriangle.SetCol(2, mgl32.Vec3{-1, -1, 1})
 	selectedTriangleUniform := gl.GetUniformLocation(program, gl.Str("selectedTriangle\x00"))
 	gl.UniformMatrix3fv(selectedTriangleUniform, 1, false, &selectedTriangle[0])
 
@@ -154,6 +161,9 @@ func main() {
 	for !window.ShouldClose() {
 		// Main update loop
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT)
+
+		// Update model-view matrix
+		updateModelViewMatrix(program)
 
 		// Time
 		time := glfw.GetTime()
@@ -216,7 +226,7 @@ func main() {
 			}
 
 			if triangleIsectIndex >= 0 {
-				log.Printf("[Debug] Mouse is ON Triangle with Index: %v\n", triangleIsectIndex)
+				// log.Printf("[Debug] Mouse is ON Triangle with Index: %v\n", triangleIsectIndex)
 
 				triangle := []int32{cubeIndices[triangleIsectIndex*3+0], cubeIndices[triangleIsectIndex*3+1], cubeIndices[triangleIsectIndex*3+2]}
 				selectedTriangle.SetCol(0, mgl32.Vec3{cubeVertices[triangle[0]*11+0], cubeVertices[triangle[0]*11+1], cubeVertices[triangle[0]*11+2]})
@@ -241,8 +251,7 @@ func main() {
 		// Draw cube
 		gl.DrawElements(gl.TRIANGLES, int32(len(cubeIndices)), gl.UNSIGNED_INT, gl.PtrOffset(0))
 
-		// Draw additional cube
-		//
+		// Draw additional cube here
 		// modelAdditional := model.Mul4(mgl32.Translate3D(2, 0, 0))
 		// modelView = view.Mul4(modelAdditional)
 		// normal = (modelView.Inv()).Transpose()
@@ -257,6 +266,16 @@ func main() {
 		window.SwapBuffers()
 		glfw.PollEvents()
 	}
+}
+
+func updateModelViewMatrix(program uint32) {
+	cameraPos := mgl32.Vec3{3, 3, 3}.Mul(float32(zoomFactor)) // Scale the camera position
+
+	view = mgl32.LookAtV(cameraPos, mgl32.Vec3{0, 0, 0}, mgl32.Vec3{0, 1, 0})
+
+	modelView := view.Mul4(model)
+	modelViewUniform := gl.GetUniformLocation(program, gl.Str("modelView\x00"))
+	gl.UniformMatrix4fv(modelViewUniform, 1, false, &modelView[0])
 }
 
 func PointInOrOn(P1 mgl32.Vec3, P2 mgl32.Vec3, A mgl32.Vec3, B mgl32.Vec3) bool {

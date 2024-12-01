@@ -15,6 +15,14 @@ const WINDOW_WIDTH = 800
 const WINDOW_HEIGHT = 600
 const FLOAT_SIZE = 4
 
+// TODO:
+// -- Refactor this code into more manageable pieces;
+// -- Add more comments;
+// -- Implement spatial partitioning of the scene (e.g. Octree, Kd-Trees, Uniform Grid);
+// -- (not sure) Implement ray-triangle intersection with Barycentric Coordinates;
+// -- AND, OFC, MIGRATE TO RUST! :D
+// The goal here is to obtain an ability to spawn more cubes once you click on a specific pane of the existing cube.
+
 var (
 	projection       mgl32.Mat4
 	view             mgl32.Mat4

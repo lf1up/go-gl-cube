@@ -62,6 +62,7 @@ var fragmentShader = `
 	const vec3 ambientColor = vec3(0.3, 0.3, 0.3);
 	const vec3 diffuseColor = vec3(0.5, 0.5, 0.5);
 	const vec3 specularColor = vec3(1.0, 1.0, 1.0);
+
 	const float lightPower = 40.0;
 	const float shininess = 16.0;
 	const float screenGamma = 2.2; // Assume the monitor is calibrated to the sRGB color space

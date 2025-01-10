@@ -11,9 +11,17 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 )
 
-const windowWidth = 800
-const windowHeight = 600
-const floatSize = 4
+const WINDOW_WIDTH = 800
+const WINDOW_HEIGHT = 600
+const FLOAT_SIZE = 4
+
+// TODO:
+// -- Refactor this code into more manageable pieces;
+// -- Add more comments;
+// -- Implement spatial partitioning of the scene (e.g. Octree, Kd-Trees, Uniform Grid);
+// -- (not sure) Implement ray-triangle intersection with Barycentric Coordinates;
+// -- AND, OFC, MIGRATE TO RUST! :D
+// The goal here is to obtain an ability to spawn more cubes once you click on a specific pane of the existing cube.
 
 var (
 	projection       mgl32.Mat4
@@ -22,29 +30,37 @@ var (
 	selectedTriangle mgl32.Mat3
 	mouseX           float32
 	mouseY           float32
+	enableRotation   bool    = false
+	keyRPressed      bool    = false
+	zoomFactor       float32 = 1.0
 )
 
 func cursorPosCallback(w *glfw.Window, xpos float64, ypos float64) {
-	mouseX = float32(xpos/(windowWidth*0.5) - 1.0)
-	mouseY = float32(-(ypos/(windowHeight*0.5) - 1.0))
+	mouseX = float32(xpos/(WINDOW_WIDTH*0.5) - 1.0)
+	mouseY = float32(-(ypos/(WINDOW_HEIGHT*0.5) - 1.0))
 }
 
-func init() {
-	// GLFW event handling must run on the main OS thread
-	runtime.LockOSThread()
+func scrollCallback(w *glfw.Window, xoff float64, yoff float64) {
+	// log.Printf("[Debug] Scroll offset (x, y): %v, %v\n", xoff, yoff)
+
+	zoomFactor -= float32(yoff) * 0.1 // Adjust sensitivity as needed
+	if zoomFactor < 0.1 {
+		zoomFactor = 0.1 // Prevent extreme zoom in
+	} else if zoomFactor > 3.0 {
+		zoomFactor = 3.0 // Prevent extreme zoom out
+	}
 }
 
-// Renders a textured spinning cube using GLFW 3.3 and OpenGL 2.1.
-func main() {
+// Initialize GLFW and OpenGL
+func initGLFW() *glfw.Window {
 	if err := glfw.Init(); err != nil {
 		log.Fatalln("failed to initialize glfw:", err)
 	}
-	defer glfw.Terminate()
 
 	glfw.WindowHint(glfw.Resizable, glfw.False)
 	glfw.WindowHint(glfw.ContextVersionMajor, 2)
 	glfw.WindowHint(glfw.ContextVersionMinor, 1)
-	window, err := glfw.CreateWindow(windowWidth, windowHeight, "CUBE", nil, nil)
+	window, err := glfw.CreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "CUBE [GL 2.1] Press \"R\" to rotate | Use \"Scroll\" to zoom", nil, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -52,6 +68,9 @@ func main() {
 
 	// Set mouse tracking callback
 	window.SetCursorPosCallback(cursorPosCallback)
+	window.SetScrollCallback(scrollCallback)
+	// Set input mode
+	window.SetInputMode(glfw.StickyKeysMode, glfw.True)
 
 	// Initialize Gl
 	if err := gl.Init(); err != nil {
@@ -61,36 +80,101 @@ func main() {
 	version := gl.GoStr(gl.GetString(gl.VERSION))
 	fmt.Println("OpenGL version", version)
 
+	return window
+}
+
+// Configure the OpenGL settings
+func configureGL() {
+	gl.Enable(gl.DEPTH_TEST)
+	gl.DepthFunc(gl.LEQUAL)
+	gl.ClearColor(0.7, 0.7, 0.7, 1.0)
+	gl.ClearStencil(0)
+	gl.ClearDepth(1.0)
+}
+
+// Load the vertex data of the cube
+func loadVertexData(program uint32) uint32 {
+	var vao uint32
+	gl.GenVertexArrays(1, &vao)
+	gl.BindVertexArray(vao)
+
+	var vbo uint32
+	gl.GenBuffers(1, &vbo)
+	gl.BindBuffer(gl.ARRAY_BUFFER, vbo)
+	gl.BufferData(gl.ARRAY_BUFFER, len(cubeVertices)*FLOAT_SIZE, gl.Ptr(cubeVertices), gl.STATIC_DRAW)
+
+	var ibo uint32
+	gl.GenBuffers(1, &ibo)
+	gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo)
+	gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(cubeIndices)*FLOAT_SIZE, gl.Ptr(cubeIndices), gl.STATIC_DRAW)
+
+	vertAttrib := uint32(gl.GetAttribLocation(program, gl.Str("vertPosition\x00")))
+	gl.EnableVertexAttribArray(vertAttrib)
+	gl.VertexAttribPointer(vertAttrib, 3, gl.FLOAT, false, 11*FLOAT_SIZE, gl.PtrOffset(0))
+
+	normalAttrib := uint32(gl.GetAttribLocation(program, gl.Str("vertNormal\x00")))
+	gl.EnableVertexAttribArray(normalAttrib)
+	gl.VertexAttribPointer(normalAttrib, 3, gl.FLOAT, false, 11*FLOAT_SIZE, gl.PtrOffset(3))
+
+	texCoordAttrib := uint32(gl.GetAttribLocation(program, gl.Str("vertTexCoord\x00")))
+	gl.EnableVertexAttribArray(texCoordAttrib)
+	gl.VertexAttribPointer(texCoordAttrib, 2, gl.FLOAT, false, 11*FLOAT_SIZE, gl.PtrOffset(6*FLOAT_SIZE))
+
+	colorAttrib := uint32(gl.GetAttribLocation(program, gl.Str("vertColor\x00")))
+	gl.EnableVertexAttribArray(colorAttrib)
+	gl.VertexAttribPointer(colorAttrib, 3, gl.FLOAT, false, 11*FLOAT_SIZE, gl.PtrOffset(8*FLOAT_SIZE))
+
+	gl.BindVertexArray(0)
+	gl.UseProgram(0)
+
+	return vao
+}
+
+func init() {
+	// GLFW event handling must run on the main OS thread
+	runtime.LockOSThread()
+}
+
+// Renders a textured spinning cube using GLFW 3.3 and OpenGL 2.1
+func main() {
+	// Initialize GLFW and OpenGL
+	window := initGLFW()
+	defer glfw.Terminate()
+	configureGL()
+
 	// Configure the vertex and fragment shaders
 	program, err := newProgram(vertexShader, fragmentShader)
 	if err != nil {
 		panic(err)
 	}
-
 	gl.UseProgram(program)
 
-	projection = mgl32.Perspective(mgl32.DegToRad(45.0), float32(windowWidth)/windowHeight, 0.1, 10.0)
+	// Set the projection matrix
+	projection = mgl32.Perspective(mgl32.DegToRad(45.0), float32(WINDOW_WIDTH)/WINDOW_HEIGHT, 0.1, 100.0)
 	projectionUniform := gl.GetUniformLocation(program, gl.Str("projection\x00"))
 	gl.UniformMatrix4fv(projectionUniform, 1, false, &projection[0])
 
+	// Set the view matrix
 	view = mgl32.LookAtV(mgl32.Vec3{3, 3, 3}, mgl32.Vec3{0, 0, 0}, mgl32.Vec3{0, 1, 0})
+	// Set the model matrix
 	model = mgl32.Ident4()
 
+	// Set the model-view matrix
 	modelView := view.Mul4(model)
 	modelViewUniform := gl.GetUniformLocation(program, gl.Str("modelView\x00"))
 	gl.UniformMatrix4fv(modelViewUniform, 1, false, &modelView[0])
 
+	// Set the normal matrix
 	normal := (modelView.Inv()).Transpose()
 	normalUniform := gl.GetUniformLocation(program, gl.Str("normal\x00"))
 	gl.UniformMatrix4fv(normalUniform, 1, false, &normal[0])
 
+	// Set the texture uniform shader variable
 	textureUniform := gl.GetUniformLocation(program, gl.Str("texture\x00"))
 	gl.Uniform1i(textureUniform, 0)
 
+	// Set the specific triangle intersection matrix
 	selectedTriangle = mgl32.Ident3()
-	selectedTriangle.SetCol(0, mgl32.Vec3{1, 1, 1})
-	selectedTriangle.SetCol(1, mgl32.Vec3{-1, 1, 1})
-	selectedTriangle.SetCol(2, mgl32.Vec3{-1, -1, 1})
 	selectedTriangleUniform := gl.GetUniformLocation(program, gl.Str("selectedTriangle\x00"))
 	gl.UniformMatrix3fv(selectedTriangleUniform, 1, false, &selectedTriangle[0])
 
@@ -100,64 +184,43 @@ func main() {
 		log.Fatalln(err)
 	}
 
-	// Configure the vertex data
-	var vao uint32
-	gl.GenVertexArrays(1, &vao)
-	gl.BindVertexArray(vao)
+	// Load the vertex data
+	vao := loadVertexData(program)
 
-	var vbo uint32
-	gl.GenBuffers(1, &vbo)
-	gl.BindBuffer(gl.ARRAY_BUFFER, vbo)
-	gl.BufferData(gl.ARRAY_BUFFER, len(cubeVertices)*floatSize, gl.Ptr(cubeVertices), gl.STATIC_DRAW)
-
-	var ibo uint32
-	gl.GenBuffers(1, &ibo)
-	gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo)
-	gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(cubeIndices)*floatSize, gl.Ptr(cubeIndices), gl.STATIC_DRAW)
-
-	vertAttrib := uint32(gl.GetAttribLocation(program, gl.Str("vertPosition\x00")))
-	gl.EnableVertexAttribArray(vertAttrib)
-	gl.VertexAttribPointer(vertAttrib, 3, gl.FLOAT, false, 11*floatSize, gl.PtrOffset(0))
-
-	normalAttrib := uint32(gl.GetAttribLocation(program, gl.Str("vertNormal\x00")))
-	gl.EnableVertexAttribArray(normalAttrib)
-	gl.VertexAttribPointer(normalAttrib, 3, gl.FLOAT, false, 11*floatSize, gl.PtrOffset(3))
-
-	texCoordAttrib := uint32(gl.GetAttribLocation(program, gl.Str("vertTexCoord\x00")))
-	gl.EnableVertexAttribArray(texCoordAttrib)
-	gl.VertexAttribPointer(texCoordAttrib, 2, gl.FLOAT, false, 11*floatSize, gl.PtrOffset(6*floatSize))
-
-	colorAttrib := uint32(gl.GetAttribLocation(program, gl.Str("vertColor\x00")))
-	gl.EnableVertexAttribArray(colorAttrib)
-	gl.VertexAttribPointer(colorAttrib, 3, gl.FLOAT, false, 11*floatSize, gl.PtrOffset(8*floatSize))
-
-	gl.BindVertexArray(0)
-	gl.UseProgram(0)
-
-	// Configure global settings
-	gl.Enable(gl.DEPTH_TEST)
-	gl.DepthFunc(gl.LEQUAL)
-	gl.ClearColor(0.7, 0.7, 0.7, 1.0)
-	gl.ClearStencil(0)
-	gl.ClearDepth(1.0)
-
+	// Current rotation angle
 	angle := 0.0
+	// Time of the previous frame
 	previousTime := glfw.GetTime()
 
 	for !window.ShouldClose() {
+		// Main update loop
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT)
 
-		// Update
+		// Update model-view matrix
+		updateModelViewMatrix(program)
+
+		// Get the elapsed time
 		time := glfw.GetTime()
 		elapsed := time - previousTime
 		previousTime = time
-		angle -= elapsed
 
-		model = mgl32.HomogRotate3D(float32(angle), mgl32.Vec3{0, 1, 0})
+		// Press "R" to enable/disable rotation
+		if window.GetKey(glfw.KeyR) == glfw.Press && !keyRPressed {
+			enableRotation = !enableRotation
+		} // and avoid multiple toggles
+		keyRPressed = (window.GetKey(glfw.KeyR) == glfw.Press)
+
+		// Rotation
+		if enableRotation {
+			angle -= elapsed
+			model = mgl32.HomogRotate3D(float32(angle), mgl32.Vec3{0, 1, 0})
+		}
+
+		// Always update because of the rotation and zoom
 		modelView = view.Mul4(model)
 		normal = (modelView.Inv()).Transpose()
 
-		// Ray-triangle intersection (with mouse coordinates)
+		// Ray-triangle intersection (with mouse coordinates, non-canonical implementation of Möller-Trumbore algorithm or IDK)
 		if (mouseX >= -1 && mouseX <= 1) && (mouseY >= -1 && mouseY <= 1) {
 			// log.Printf("[Debug] Mouse position (x y): %v %v\n", mouseX, mouseY)
 
@@ -209,7 +272,7 @@ func main() {
 			}
 		}
 
-		// Render
+		// Render the scene
 		gl.UseProgram(program)
 		gl.UniformMatrix4fv(modelViewUniform, 1, false, &modelView[0])
 		gl.UniformMatrix4fv(normalUniform, 1, false, &normal[0])
@@ -220,11 +283,10 @@ func main() {
 		gl.ActiveTexture(gl.TEXTURE0)
 		gl.BindTexture(gl.TEXTURE_2D, texture)
 
-		// Draw cube
+		// Draw cube here
 		gl.DrawElements(gl.TRIANGLES, int32(len(cubeIndices)), gl.UNSIGNED_INT, gl.PtrOffset(0))
 
-		// Draw additional cube
-		//
+		// Draw additional cube here
 		// modelAdditional := model.Mul4(mgl32.Translate3D(2, 0, 0))
 		// modelView = view.Mul4(modelAdditional)
 		// normal = (modelView.Inv()).Transpose()
@@ -239,6 +301,16 @@ func main() {
 		window.SwapBuffers()
 		glfw.PollEvents()
 	}
+}
+
+func updateModelViewMatrix(program uint32) {
+	cameraPos := mgl32.Vec3{3, 3, 3}.Mul(float32(zoomFactor)) // Scale the camera position
+
+	view = mgl32.LookAtV(cameraPos, mgl32.Vec3{0, 0, 0}, mgl32.Vec3{0, 1, 0})
+
+	modelView := view.Mul4(model)
+	modelViewUniform := gl.GetUniformLocation(program, gl.Str("modelView\x00"))
+	gl.UniformMatrix4fv(modelViewUniform, 1, false, &modelView[0])
 }
 
 func PointInOrOn(P1 mgl32.Vec3, P2 mgl32.Vec3, A mgl32.Vec3, B mgl32.Vec3) bool {
